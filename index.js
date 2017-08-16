@@ -11,9 +11,12 @@ let app = express();
 // Cached Exchange data
 let exchangeData = [];
 let urlBuilderData = [];
-
+let currency = "EUR";
 // Port specified
 let port = process.env.PORT || 80;
+const supportedCurrencies = [
+    "AUD", "BRL", "CAD", "CHF", "CNY", "EUR", "GBP", "HKD", "IDR", "INR", "JPY", "KRW", "MXN", "RUB"
+]
 
 // This allows loading anything that has / assets
 // from the "public folder"
@@ -33,35 +36,36 @@ app.use("/", function (req, res) {
         // There is at least one parameter, so - lets build arrays to check
         // Wanted to use object.values but its support on this Node version .. meh
         // With this we get an array of values of the object
-        let temp = Object.keys(req.query).map((k) => req.query[k]);
+        let queryString = Object.keys(req.query).map((k) => req.query[k]);
 
         // Log the request for analysis
-        console.log("New REQUEST: " + temp + " BY: " + req.connection.remoteAddress);
+        console.log("New REQUEST: " + queryString + " BY: " + req.connection.remoteAddress);
 
         // Request data
-        let currency = temp[0];
+        let unvalidatedCurrency = queryString[0].toString().toUpperCase();
 
-        if (!(currency == "EUR" || currency == "USD")) {
+        if (supportedCurrencies.indexOf(unvalidatedCurrency) === -1) {
             res.render('error', {
                 fromURL: true,
                 urlBuilderData: urlBuilderData
             });
             return;
         }
+        currency = unvalidatedCurrency;
+        updateAllCoins();
 
         // We got the currency, lets delete the first element
-        temp.shift();
+        queryString.shift();
 
         // Statistic data
         let investedValue = 0;
         let currentValue = 0;
-        let totalPercentageDifference = 0;
 
         // Lets divide this array into an array of objects
         let toParse = [];
-        for (let i = 0; i < temp.length; i++) {
+        for (let i = 0; i < queryString.length; i++) {
             // Split the string
-            let onePart = temp[i].split("*");
+            let onePart = queryString[i].split("*");
 
             // Now go through the object and fill in the data
             toParse[i] = {
@@ -88,8 +92,8 @@ app.use("/", function (req, res) {
             toParse[i].percentageDifference = percentageString(toParse[i].currentValueOfAll, toParse[i].invested);
 
             // Count all the results together
-            investedValue = investedValue + toParse[i].invested;
-            currentValue = currentValue + toParse[i].currentValueOfAll;
+            investedValue += toParse[i].invested;
+            currentValue += toParse[i].currentValueOfAll;
 
             // Round up the values (after we counted them in)
             toParse[i].invested = roundNumber(toParse[i].invested);
@@ -106,7 +110,7 @@ app.use("/", function (req, res) {
         let differenceValue = currentValue - investedValue;
 
         // Count the total percentage difference of your portfolio
-        totalPercentageDifference = percentageString(currentValue, investedValue);
+        let totalPercentageDifference = percentageString(currentValue, investedValue);
 
         // Round the difference value
         differenceValue = roundNumber(differenceValue);
@@ -122,7 +126,8 @@ app.use("/", function (req, res) {
         });
     } else res.render('error', {
         fromURL: false,
-        urlBuilderData: urlBuilderData
+        urlBuilderData: urlBuilderData,
+        supportedCurrencies: supportedCurrencies
     });
 });
 
@@ -152,9 +157,11 @@ function updateAllCoins() {
     // Coinbase source
     let tempArray = [];
 
-    request('https://api.coinmarketcap.com/v1/ticker/?convert=EUR&limit=200', function (error, response, body) {
+    const url = 'https://api.coinmarketcap.com/v1/ticker/?convert=' + currency + '&limit=200';
+    request(url, function (error, response, body) {
         if (error) {
-            console.log('Error:' + error);
+            console.log('Error fetching data from coinmarketcap: ' + error);
+            return;
         }
         if (response.body.toString('utf-8').charAt(0) == "[") {
             tempArray = JSON.parse(response.body.toString('utf-8'));
@@ -162,13 +169,17 @@ function updateAllCoins() {
             exchangeData = [];
             urlBuilderData = [];
 
+            // console.log('Returned data: ' + response.body);
+            console.log('url: ' + url);
+
             for (let i = 0; i < tempArray.length; i++) {
-                exchangeData.push({
-                    name: tempArray[i].name,
-                    symbol: tempArray[i].symbol,
-                    USD: tempArray[i].price_usd,
-                    EUR: tempArray[i].price_eur
-                });
+                let newData = {
+                    'name': tempArray[i].name,
+                    'symbol': tempArray[i].symbol,
+                    'USD': tempArray[i].price_usd
+                };
+                newData[currency] = tempArray[i]['price_' + currency.toLowerCase()];
+                exchangeData.push(newData);
                 if (i < 50) {
                     urlBuilderData.push({
                         name: tempArray[i].name,
@@ -188,14 +199,13 @@ function roundNumber(num) {
     let scale = 2;
     if (!("" + num).includes("e")) {
         return +(Math.round(num + "e+" + scale) + "e-" + scale);
-    } else {
-        let arr = ("" + num).split("e");
-        let sig = "";
-        if (+arr[1] + scale > 0) {
-            sig = "+";
-        }
-        return +(Math.round(+arr[0] + "e" + sig + (+arr[1] + scale)) + "e-" + scale);
     }
+    let arr = ("" + num).split("e");
+    let sig = "";
+    if (+arr[1] + scale > 0) {
+        sig = "+";
+    }
+    return +(Math.round(+arr[0] + "e" + sig + (+arr[1] + scale)) + "e-" + scale);
 }
 
 function percentageString(newValue, oldValue) {
@@ -204,7 +214,6 @@ function percentageString(newValue, oldValue) {
     }
     if (newValue >= oldValue) {
         return "+" + roundNumber((newValue - oldValue) / oldValue * 100) + "%";
-    } else {
-        return "-" + roundNumber((oldValue - newValue) / oldValue * 100) + "%";
     }
+    return "-" + roundNumber((oldValue - newValue) / oldValue * 100) + "%";
 }

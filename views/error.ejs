@@ -172,8 +172,10 @@
                         <div class="form-group">
                             <select class="form-control" id="currency"
                                     onChange='swapCurrency()'>
-                                <option value="EUR">EUR</option>
-                                <option value="USD">USD</option>
+                                <%
+                                for(let i = 0; i < supportedCurrencies.length; i++) { %>
+                                <option value="<%= supportedCurrencies[i] %>"><%= supportedCurrencies[i] %></option>
+                                <% } %>
                             </select>
                         </div>
                     </div>
@@ -245,7 +247,7 @@
 
     function goToConstructed() {
         if (!(document.getElementById("basic-url").value == "")) {
-            let goTo = "http://cryptosummary.herokuapp.com/?" + "0=" + getCurrency() + "&" + document.getElementById("basic-url").value;
+            let goTo = "/?" + "0=" + getCurrency() + "&" + document.getElementById("basic-url").value;
             location.href = goTo;
         }
     }
